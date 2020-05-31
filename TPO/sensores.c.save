@@ -1,0 +1,214 @@
+#include <stdio.h>
+#include <stdbool.h>
+#include <stdlib.h>
+#include <time.h>
+#include <xmmintrin.h>
+#include <emmintrin.h>
+
+
+// true == 1
+// false == 0
+
+
+struct sensor {
+	double* input;
+	double* result;
+	double min;
+	double max;
+	int size;
+};
+
+typedef struct sensor Sensor;
+
+
+void operar(Sensor* sensor, const char* name, int iteraciones, int doublePorReg);
+void cargarElementos(Sensor* sensor);
+void verificarValores(Sensor* sensor, int iteraciones, int doublePorReg);
+void imprimirElementos(Sensor* sensor, const char* name, bool isInput);
+
+void liberarSensor(Sensor* sensor);
+void liberarSensores(Sensor** sensores, int size);
+
+char* concat(const char* s1, const char* s2);
+
+Sensor* newSensor(int size, double min, double max) {
+	//min and max are both inclusive
+
+	Sensor* sensor = malloc(sizeof *sensor);
+
+/*	PARA USAR EN WINDOWS. SE USA _alligned_malloc
+
+
+	/sensor->input =(void) _aligned_malloc(sizeof(double) * 20, 16);
+	if (sensor->input == NULL)
+		return 1;
+
+	sensor->result = (void*)_aligned_malloc(sizeof(double) * 20, 16);
+	if (sensor->result == NULL)
+		return 1;*/
+
+/*			PARA USAR EN LINUX. SE USA POSIX	*/
+
+
+if (posix_memalign((void**)&sensor->input, 16, 20 * sizeof(double)) != 0)
+		return 1;
+
+	if (posix_memalign((void**)&sensor->result, 16, 20 * sizeof(double)) != 0)
+		return 1;
+
+	sensor->min = min;
+	sensor->max = max;
+	sensor->size = size;
+	return sensor;
+}
+
+int main() {
+	int doublePorReg = 16 / sizeof(double);
+	double iteraciones = 5;
+
+	/*	- tamaño a alocar = mas grande de lo normal para evitar problemas de violación de acceso
+		- la temperatura aceptada va a estar entre [rango minimo, rango maximo]
+		si rango minimo es -1 quiere decir que no existe, y se interpreta [rango maximo, infinito+)
+    	 newSensor(tamaño a alocar, rango minimo, rango maximo)   -> pseudoconstructor
+	*/
+
+	Sensor* temperaturaAire = newSensor(5, 20.0, 30.0);
+	Sensor* humedadAire = newSensor(5, -1, 75);
+/*
+	const int sizeHumedadSueloArray = 10;
+	Sensor** sensoresHumedadSuelo = malloc(sizeof(Sensor) * sizeHumedadSueloArray);
+*/
+	operar(temperaturaAire, "Temperatura del aire", iteraciones, doublePorReg);
+	operar(humedadAire, "Humedad del aire", iteraciones, doublePorReg);
+
+
+/*		for (int i = 0; i < sizeHumedadSueloArray; i++) {
+			sensoresHumedadSuelo[i] = newSensor(5, -1, 30);
+		}
+
+		for (int i = 0; i < sizeHumedadSueloArray; i++) {
+			char aux[4];
+			sprintf(aux, "%d", i);
+			char* name = concat("Humedad del suelo - sensor ", aux);
+
+			operar(sensoresHumedadSuelo[i], name, iteraciones, doublePorReg);
+			free(name);
+		}
+*/
+			liberarSensor(temperaturaAire);
+			liberarSensor(humedadAire);
+/*			liberarSensores(sensoresHumedadSuelo, sizeHumedadSueloArray);
+*/
+}
+
+
+
+vid operar(Sensor* sensor, const char* name, int iteraciones, int doublePorReg) {
+	cargarElementos(sensor);
+	verificarValores(sensor, iteraciones, doublePorReg);
+	imprimirElementos(sensor, name, true);
+	imprimirElementos(sensor, name, false);
+}
+
+
+
+void cargarElementos(Sensor* sensor) {
+	int seed = time(NULL);
+	srand(seed);
+
+	float a = 100.0;
+
+	for (int i = 0; i < sensor->size; i++) {
+		float value = (float)rand() / (float)(RAND_MAX / a);
+		sensor->input[i] = value;
+	}
+}
+
+void verificarValores(Sensor* sensor, int iteraciones, int doublePorReg) {
+	__m128d mascaraRangoMaximo, mascaraUnos, mascaraRangoMinimo, testeo, reg_actual, aux;
+	__m128d const_comp = _mm_set1_pd(0.0);
+	__m128d const_noHayRangoMinimido = _mm_set1_pd(-1.0);
+
+
+	for (int i = 0; i < iteraciones; i++) {
+		reg_actual = _mm_load_pd((double*)sensor->input + (i * doublePorReg));	 /* Carga desde memoria */
+
+		__m128d max = _mm_set1_pd(sensor->max);
+
+		if (sensor->min == -1) {
+			mascaraRangoMaximo = _mm_cmpgt_pd(reg_actual, max); //Mayores a max
+
+			reg_actual = _mm_and_pd(reg_actual, mascaraRangoMaximo);
+
+		} else {
+			__m128d min = _mm_set1_pd(sensor->min);
+			mascaraRangoMinimo = _mm_cmpge_pd(reg_actual, min);
+			mascaraRangoMaximo = _mm_cmple_pd(reg_actual, max);
+			aux = _mm_and_pd(mascaraRangoMinimo, mascaraRangoMaximo);
+			reg_actual = _mm_and_pd(reg_actual, aux);
+		}
+
+		_mm_store_pd((double*)(sensor->result + (i * doublePorReg)), reg_actual); /* Guarda los resultados en memoria */
+	}
+}
+
+
+void imprimirElementos(Sensor* sensor, const char* name, bool isInput) {
+	printf(name);
+	printf(":  [");
+
+	for (int i = 0; i < sensor->size; i++) {
+		if (i == sensor->size - 1) {
+			if (isInput) {
+				printf("%.2f]   ENTRADA\n", sensor->input[i]);
+			}
+			else {
+				printf("%.2f]   RESULTADO\n\n", sensor->result[i]);
+				continue;
+			}
+		}
+		else {
+			if (isInput) {
+				printf("%.2f, ", sensor->input[i]);
+			}
+			else {
+				printf("%.2f, ", sensor->result[i]);
+			}
+		}
+	}
+
+}
+
+void liberarSensor(Sensor* sensor) {
+	/WINDOWS SE USA aligned_free/
+
+	/*_aligned_free(sensor->input);
+	_aligned_free(sensor->result);*/
+
+
+
+	/* LINUX SE USA free*/
+
+	free(sensor->input);
+	free(sensor->result);
+
+	free(sensor);
+}
+
+void liberarSensores(Sensor** sensores, int size) {
+	for (int i = 0; i < size; i++) {
+		liberarSensor(sensores[i]);
+	}
+}
+
+char* concat(const char* s1, const char* s2)
+{
+	const size_t len1 = strlen(s1);
+	const size_t len2 = strlen(s2);
+	char* result = malloc(len1 + len2 + 1); // +1 for the null-terminator
+
+
+	memcpy(result, s1, len1);
+	memcpy(result + len1, s2, len2 + 1); // +1 to copy the null-terminator
+	return result;
+}

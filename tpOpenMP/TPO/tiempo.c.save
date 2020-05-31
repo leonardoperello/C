@@ -1,0 +1,18 @@
+#include <stdio.h>
+#include <time.h>
+
+int main(){
+
+double tiempo_inicio, tiempo_final;
+double segundos;
+
+tiempo_inicio = clock();
+
+
+tiempo_final = clock();
+
+segundos = (double)(tiempo_inicio - timpo_final) / CLOCKS_PER_SEC; ,segundos);
+
+
+return 0;
+}

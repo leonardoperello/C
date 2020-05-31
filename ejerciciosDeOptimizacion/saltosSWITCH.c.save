@@ -1,0 +1,16 @@
+#include <stdio.h>
+void main(void){
+int m[900][500];
+int i, j;
+
+for (i=0; i<900; i++)
+fo
+
+for(i=0; i<900; i++){
+for(j=0; j<500; j++){
+printf(" %d", m[i][j]);
+printf("\n");
+}
+}
+
+}
